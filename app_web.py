@@ -1,81 +1,91 @@
-import sys
-import os
-from database import supabase
-
 import streamlit as st
 import pandas as pd
-from database import supabase # Esto es lo que fallaba
+from database import supabase  # Mantenemos tu conexión
 
-# Configuración de la página
-st.set_page_config(page_title="Albion Market Intelligence", layout="wide")
+# --- CONFIGURACIÓN DE PÁGINA ---
+st.set_page_config(page_title="Albion Intelligence", layout="wide")
 
-st.title("Albion Market Intelligence Dashboard")
+st.title("🏹 Albion Intelligence Dashboard")
 
-# Botón para refrescar datos
-if st.button('Actualizar Datos'):
-    try:
-        # Traemos los últimos 2000 registros
-        response = supabase.table("historial_precios").select("*").order("created_at", desc=True).limit(2000).execute()
-        data = response.data
+# --- 1. BARRA LATERAL (FILTROS) ---
+st.sidebar.header("🔍 Filtros de Mercado")
+busqueda = st.sidebar.text_input("Barra de búsqueda (Nombre o ID)", "")
+ciudad_filtro = st.sidebar.multiselect("Filtrar por Ciudad", 
+                                     ["Lymhurst", "Martlock", "Bridgewatch", "Fort Sterling", "Thetford", "Caerleon", "Black Market"])
+
+# --- 2. FUNCIÓN PARA TRADUCIR Y LIMPIAR (LO QUE PEDISTE) ---
+def mejorar_datos(df):
+    # Diccionario básico para nombres en español (puedes ampliarlo)
+    traducciones = {
+        "CLOAK": "Capa", "BAG": "Bolso", "CAPE": "Capa", "HEAD": "Casco",
+        "PLATE": "Placa", "LEATHER": "Cuero", "CLOTH": "Tela", "UNDEAD": "Undead"
+    }
+    
+    def traducir(item_id):
+        nombre = item_id.split('@')[0] # Quita el @1, @2
+        for eng, esp in traducciones.items():
+            nombre = nombre.replace(eng, esp)
+        return nombre.replace("_", " ")
+
+    df['Nombre ESP'] = df['item_id'].apply(traducir)
+    
+    # Nivel de encantamiento (Extrae el número después del @)
+    df['Encantamiento'] = df['item_id'].apply(lambda x: x.split('@')[1] if '@' in x else "0")
+    
+    # Formatear precios con comas para legibilidad
+    df['Precio Compra'] = df['price_buy'].map('{:,}'.format)
+    df['Precio Venta'] = df['price_sell'].map('{:,}'.format)
+    
+    return df
+
+# --- 3. CARGA DE DATOS ---
+try:
+    # Traemos los datos de tu Supabase
+    response = supabase.table("precios_albion").select("*").execute()
+    data = response.data
+    df = pd.DataFrame(data)
+
+    if not df.empty:
+        df = mejorar_datos(df)
+
+        # Aplicar Filtros
+        if busqueda:
+            df = df[df['Nombre ESP'].str.contains(busqueda, case=False) | df['item_id'].str.contains(busqueda, case=False)]
+        if ciudad_filtro:
+            df = df[df['city'].isin(ciudad_filtro)]
+
+        # --- 4. TABLA PRINCIPAL (LEGIBLE) ---
+        st.subheader("📊 Datos Totales del Mercado")
         
-        if data:
-            df = pd.DataFrame(data)
-            
-            # --- AQUÍ VA LA FUNCIÓN CLASIFICAR ---
-            def clasificar(row):
-                p_compra = row['price_buy']
-                p_venta = row['price_sell']
-                if p_compra <= 0 or p_venta <= 0: return None
-                
-                profit = (p_compra * 0.935) - p_venta
-                roi = (profit / p_venta) * 100
-                
-                # FILTRO DE PRIVACIDAD: Si es Platino (>50% ROI), no lo mostramos en la web
-                if roi > 50 or profit > 250000: 
-                    return None 
-                
-                if roi > 18 or profit > 80000: return "🌟 ORO"
-                if roi > 8: return "📢 PUBLICO"
-                return "📉 BAJO MARGEN"
+        # Columnas que pediste (sin la clasificación "fea")
+        cols_principales = ['Nombre ESP', 'Encantamiento', 'city', 'Precio Compra', 'Precio Venta', 'quality']
+        
+        # Checkbox para seleccionar ítems (Lista de Seguimiento)
+        # Usamos un truco de Streamlit: multiselect que actúa como "palomita"
+        seleccionados = st.multiselect("✅ Selecciona ítems para tu lista de observación fija:", 
+                                      df['Nombre ESP'].unique(), key="selector")
 
-            # Aplicamos la clasificación
-            df['Clasificacion'] = df.apply(clasificar, axis=1)
-            
-            # Borramos las filas que son None (los Platinos ocultos)
-            df = df.dropna(subset=['Clasificacion'])
+        st.dataframe(df[cols_principales], use_container_width=True)
 
-            # --- MÉTRICAS ---
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Registros en Vista", len(df))
-            with col2:
-                oros = len(df[df['Clasificacion'] == "🌟 ORO"])
-                st.metric("Tickets Oro Detectados", oros)
-            with col3:
-                st.metric("Estado del Sistema", "Online")
-                
-            # --- TABLA CON ESTILO ---
-            st.subheader("Panel de Oportunidades Filtradas")
-            
-            # Reordenar columnas para limpieza visual
-            cols = ['Clasificacion', 'item_id', 'city', 'price_buy', 'price_sell', 'quality', 'created_at']
-            df = df[cols]
+        # --- 5. PESTAÑA EMERGENTE (PREMIUM / CLASIFICACIÓN) ---
+        with st.expander("⭐ VER CLASIFICACIÓN (Solo Usuarios Premium)"):
+            st.info("Esta sección contiene la inteligencia de márgenes y oportunidades.")
+            st.dataframe(df[['Nombre ESP', 'Clasificacion', 'city']], use_container_width=True)
 
-            # Función para los colores de las etiquetas
-            def color_tokens(val):
-                if val == "🌟 ORO": color = '#f1c40f'
-                elif val == "📢 PUBLICO": color = '#2ecc71'
-                else: color = '#95a5a6'
-                return f'background-color: {color}; color: black; font-weight: bold'
+        # --- 6. TABLA DE SELECCIONADOS (ABAJO) ---
+        if seleccionados:
+            st.divider()
+            st.subheader("📌 Mi Lista de Seguimiento Fijo")
+            df_fijo = df[df['Nombre ESP'].isin(seleccionados)]
+            st.dataframe(df_fijo[cols_principales], use_container_width=True)
+            st.caption(f"Estás observando {len(df_fijo)} ítems específicamente.")
 
-            # Cambia .applymap por .map
-            st.dataframe(df.style.map(color_tokens, subset=['Clasificacion']), use_container_width=True)
+    else:
+        st.warning("No hay datos nuevos en la base de datos.")
 
-            # --- GRÁFICA ---
-            st.subheader("Analisis de Precios por Ciudad")
-            st.bar_chart(data=df, x='city', y='price_sell')
-            
-        else:
-            st.info("Sin registros nuevos en la base de datos.")
-    except Exception as e:
-        st.error(f"Error de conexión: {e}")
+except Exception as e:
+    st.error(f"Error al conectar con la base de datos: {e}")
+
+# Botón de actualización
+if st.button("Actualizar Dashboard"):
+    st.rerun()
