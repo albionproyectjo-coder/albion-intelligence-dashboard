@@ -38,7 +38,7 @@ def mejorar_datos(df):
 # --- 3. CARGA DE DATOS ---
 try:
     # REEMPLAZA "precios_albion" por el nombre real de tu tabla en Supabase
-    response = supabase.table("precios_albion").select("*").execute()
+    response = supabase.table("historial_precios").select("*").execute()
     data = response.data
     df = pd.DataFrame(data)
 
