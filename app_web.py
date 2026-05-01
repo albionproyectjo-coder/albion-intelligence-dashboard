@@ -2,124 +2,96 @@ import streamlit as st
 import pandas as pd
 from database import supabase
 
-st.set_page_config(page_title="Albion Intelligence", layout="wide")
+st.set_page_config(page_title="Albion Intelligence Pro", layout="wide")
 
-# Estilo para mejorar la visibilidad de la tabla de seguimiento
-st.markdown("""
-    <style>
-    .stButton button { width: 100%; border-radius: 5px; }
-    .fijado-container { background-color: #1a1a1a; padding: 15px; border-radius: 10px; border: 1px solid #333; }
-    </style>
-    """, unsafe_allow_html=True)
+# --- NOMENCLATURA Y TRADUCCION ---
+TIERS_OFICIALES = {"T3": "del Neófito", "T4": "del Adepto", "T5": "del Experto", "T6": "del Maestro", "T7": "del Gran Maestro", "T8": "del Anciano"}
+TRADUCCION_BASE = {"MOUNT_OX": "Buey de transporte", "CLOAK_UNDEAD": "Capa de Undead", "BAG": "Bolso", "TORCH": "Antorcha", "SHIELD": "Escudo", "MERCENARY_JACKET": "Chaqueta de mercenario"}
 
-# --- 1. MOTOR DE NOMENCLATURA ---
-TIERS_OFICIALES = {
-    "T3": "del Neófito", "T4": "del Adepto", "T5": "del Experto",
-    "T6": "del Maestro", "T7": "del Gran Maestro", "T8": "del Anciano"
-}
-
-TRADUCCION_BASE = {
-    "MOUNT_OX": "Buey de transporte",
-    "CLOAK_UNDEAD": "Capa de Undead",
-    "BAG": "Bolso",
-    "TORCH": "Antorcha",
-    "SHIELD": "Escudo",
-    "MERCENARY_JACKET": "Chaqueta de mercenario"
-}
-
-def formatear_a_español(item_id):
+def formatear_nombre(item_id):
     partes = item_id.split('@')[0].split('_')
     t_key = partes[0]
     item_key = "_".join(partes[1:])
-    
-    nombre_base = TRADUCCION_BASE.get(item_key, item_key.replace("_", " ").title())
-    sufijo = TIERS_OFICIALES.get(t_key, t_key)
-    
-    return f"{nombre_base} {sufijo}"
+    nombre = TRADUCCION_BASE.get(item_key, item_key.replace("_", " ").title())
+    return f"{nombre} {TIERS_OFICIALES.get(t_key, t_key)}"
 
-# --- 2. INTERFAZ DE FILTROS ---
-st.title("Albion Intelligence Dashboard")
+# --- INTERFAZ DE FILTROS ---
+st.title("Albion Intelligence - Panel de Control")
 
-c1, c2, c3, c4 = st.columns(4)
-with c1:
-    busqueda = st.text_input("Buscar Objeto", placeholder="Ej: Escudo...")
-with c2:
-    tier_filtro = st.selectbox("Nivel", ["Todos", "T3", "T4", "T5", "T6", "T7", "T8"])
-with c3:
-    encantamiento_filtro = st.selectbox("Encantamiento", ["Todos", "0", "1", "2", "3", "4"])
-with c4:
-    ciudad_filtro = st.multiselect("Ciudad", ["Lymhurst", "Martlock", "Bridgewatch", "Fort Sterling", "Thetford", "Caerleon", "Black Market"])
+col_f1, col_f2, col_f3 = st.columns(3)
+with col_f1:
+    busqueda = st.text_input("Buscar Objeto", placeholder="Ej: Buey...")
+    ciudad_compra = st.multiselect("Ciudad de Compra", ["Lymhurst", "Martlock", "Bridgewatch", "Fort Sterling", "Thetford", "Caerleon"])
+with col_f2:
+    tier_f = st.selectbox("Nivel", ["Todos", "T3", "T4", "T5", "T6", "T7", "T8"])
+    ciudad_venta = st.multiselect("Ciudad de Venta (Analisis Oro)", ["Black Market", "Caerleon", "Lymhurst", "Martlock", "Bridgewatch", "Fort Sterling", "Thetford"])
+with col_f3:
+    encant_f = st.selectbox("Encantamiento", ["Todos", "0", "1", "2", "3", "4"])
+    tipo_impuesto = st.radio("Tipo de Impuesto de Venta", ["Premium (4%)", "Normal (8%)"], horizontal=True)
 
-# --- 3. CARGA DE DATOS ---
+tasa = 0.04 if "Premium" in tipo_impuesto else 0.08
+
+# --- CARGA DE DATOS (2000 REGISTROS) ---
 try:
-    # Consulta optimizada a historial_precios
-    query = supabase.table("historial_precios").select("*").order("created_at", desc=True).limit(500)
-    response = query.execute()
+    response = supabase.table("historial_precios").select("*").order("created_at", desc=True).limit(2000).execute()
     df = pd.DataFrame(response.data)
 
     if not df.empty:
-        df['Objeto'] = df['item_id'].apply(formatear_a_español)
+        df['Objeto'] = df['item_id'].apply(formatear_nombre)
         df['Enc.'] = df['item_id'].apply(lambda x: x.split('@')[1] if '@' in x else "0")
-        df['Precio Compra'] = df['price_buy']
-        df['Precio Venta'] = df['price_sell']
-
-        # Filtros
-        if busqueda:
-            df = df[df['Objeto'].str.contains(busqueda, case=False)]
-        if tier_filtro != "Todos":
-            df = df[df['item_id'].str.startswith(tier_filtro)]
-        if encantamiento_filtro != "Todos":
-            df = df[df['Enc.'] == encantamiento_filtro]
-        if ciudad_filtro:
-            df = df[df['city'].isin(ciudad_filtro)]
-
-        # --- 4. TABLA PRINCIPAL (FIX) ---
-        st.subheader("Mercado")
-        df['Fix'] = False
         
-        columnas_visibles = ['Fix', 'Objeto', 'Enc.', 'city', 'Precio Compra', 'Precio Venta']
+        # Filtros Base
+        if busqueda: df = df[df['Objeto'].str.contains(busqueda, case=False)]
+        if tier_f != "Todos": df = df[df['item_id'].str.startswith(tier_f)]
+        if encant_f != "Todos": df = df[df['Enc.'] == encant_f]
         
-        res_editor = st.data_editor(
-            df[columnas_visibles],
-            column_config={
-                "Fix": st.column_config.CheckboxColumn("Fix", default=False),
-                "Precio Compra": st.column_config.NumberColumn(format="%d"),
-                "Precio Venta": st.column_config.NumberColumn(format="%d")
-            },
-            disabled=['Objeto', 'Enc.', 'city', 'Precio Compra', 'Precio Venta'],
-            hide_index=True,
-            use_container_width=True,
-            key="editor_principal"
-        )
+        # --- TABLA 1: MIEMBROS ACCESO GRATIS ---
+        st.header("Precios Miembros Acceso Gratis")
+        df_gratis = df.copy()
+        if ciudad_compra: df_gratis = df_gratis[df_gratis['city'].isin(ciudad_compra)]
+        
+        st.dataframe(df_gratis[['Objeto', 'Enc.', 'city', 'price_buy', 'price_sell', 'quality']], 
+                     hide_index=True, use_container_width=True)
 
-        # --- 5. LISTA DE SEGUIMIENTO CON COPIADO RÁPIDO ---
-        fijados = res_editor[res_editor['Fix'] == True]
+        # --- TABLA 2: MIEMBROS ORO (INTELIGENCIA) ---
+        st.markdown("---")
+        st.header("Precios Miembros Oro (Analisis de Margen)")
         
-        if not fijados.empty:
-            st.markdown("---")
-            st.subheader("Mi Lista de Seguimiento Fijo (Acción Rápida)")
+        if not ciudad_venta:
+            st.info("Selecciona una 'Ciudad de Venta' para ver el analisis de profit.")
+        else:
+            # Calculo de Profit: (Precio Venta * (1 - Tasa)) - Precio Compra
+            df_oro = df.copy()
+            df_oro['Venta Neta'] = df_oro['price_sell'] * (1 - tasa)
+            df_oro['Profit Est.'] = df_oro['Venta Neta'] - df_oro['price_buy']
             
-            # Creamos una fila por cada ítem fijado con un botón de copiar
-            for index, row in fijados.iterrows():
-                with st.container():
-                    col_nom, col_det, col_copy = st.columns([3, 2, 1])
-                    with col_nom:
-                        st.markdown(f"**{row['Objeto']}**")
-                    with col_det:
-                        st.write(f"{row['city']} | Compra: {row['Precio Compra']:,}")
-                    with col_copy:
-                        # BOTÓN DE COPIAR AL PORTAPAPELES
-                        if st.button(f"Copiar", key=f"btn_{index}"):
-                            st.copy_to_clipboard(row['Objeto'])
-                            st.toast(f"Copiado: {row['Objeto']}")
+            # Filtro por ciudad de venta
+            df_oro = df_oro[df_oro['city'].isin(ciudad_venta)]
             
-            st.info("Haz clic en 'Copiar' y pega el nombre directamente en el buscador de Albion.")
+            # Formateo para que sea facil de copiar
+            df_oro['Profit Est.'] = df_oro['Profit Est.'].map('{:,.0f}'.format)
+            
+            st.data_editor(
+                df_oro[['Objeto', 'Enc.', 'city', 'price_buy', 'price_sell', 'Profit Est.']],
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Objeto": st.column_config.TextColumn("Objeto (Click para copiar)"),
+                    "Profit Est.": st.column_config.TextColumn("Profit (Tras Impuestos)")
+                }
+            )
+
+        # --- SECCION DE COPIADO RAPIDO ---
+        st.subheader("Copiado Rapido para Mercado")
+        item_para_copiar = st.selectbox("Selecciona objeto para copiar nombre", df['Objeto'].unique())
+        st.code(item_para_copiar, language="text")
+        st.caption("Copia el texto de arriba y pegalo en el buscador de Albion.")
 
     else:
-        st.warning("No hay datos en la tabla historial_precios.")
+        st.warning("No hay datos suficientes.")
 
 except Exception as e:
     st.error(f"Error: {e}")
 
-if st.button("Actualizar"):
+if st.button("Actualizar Todo"):
     st.rerun()
