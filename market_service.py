@@ -126,6 +126,24 @@ def ejecutar_escaneo():
             continue
             
         time.sleep(60) # El descanso ideal para no saturar el API
+import time
+# ... tus otros imports ...
+
+def ejecutar_recoleccion():
+    print("Iniciando escaneo de mercado...")
+    # Aquí va tu lógica actual de buscar precios y subirlos a Supabase
+    # ...
+    print("Escaneo finalizado. Esperando 15 minutos...")
+
+if __name__ == "__main__":
+    while True:
+        try:
+            ejecutar_recoleccion()
+        except Exception as e:
+            print(f"Ocurrió un error: {e}")
+        
+        # Espera 15 minutos (900 segundos) antes de volver a empezar
+        time.sleep(900)
 
 if __name__ == "__main__":
     ejecutar_escaneo()
