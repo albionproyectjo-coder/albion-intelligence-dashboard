@@ -63,8 +63,9 @@ try:
 
         # --- 5. PESTAÑA EMERGENTE (PREMIUM) ---
         with st.expander("VER CLASIFICACION (Solo Usuarios Premium)"):
-            st.info("Esta seccion contiene la inteligencia de margenes y oportunidades.")
-            st.dataframe(df[['Nombre ESP', 'Clasificacion', 'city']], use_container_width=True)
+            st.info("Esta seccion contiene la inteligencia de margenes.")
+            # Quitamos 'Clasificacion' de la lista para evitar el error
+            st.dataframe(df[['Nombre ESP', 'city']], use_container_width=True)
 
         # --- 6. TABLA DE SELECCIONADOS ---
         if seleccionados:
